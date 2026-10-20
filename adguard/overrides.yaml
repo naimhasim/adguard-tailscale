@@ -1,0 +1,96 @@
+# =============================================================================
+#  AdGuard Home - configuration overrides
+# =============================================================================
+#  This is a PARTIAL AdGuardHome.yaml. Only the keys you write here are changed;
+#  everything else that AdGuard manages (schema, stats, filters cache, users,
+#  TLS, DHCP...) is left exactly as it is.
+#
+#  Merge rules, so there are no surprises:
+#    * mapping  -> merged recursively  (you can override a single leaf)
+#    * scalar   -> replaced
+#    * list     -> REPLACED wholesale  (it is NOT appended to)
+#    * schema_version is never read from this file
+#
+#  Apply:   sudo ./scripts/apply-overrides.py
+#  Preview: sudo ./scripts/apply-overrides.py --dry-run
+#
+#  Everything not needed is commented out - uncomment and edit what you want.
+# =============================================================================
+
+dns:
+
+  # ---------------------------------------------------------------------------
+  #  Upstream resolvers. THIS IS THE ONE YOU ASKED FOR.
+  #  The whole list is replaced, so list every resolver you want - leaving one
+  #  out here removes it.
+  # ---------------------------------------------------------------------------
+  upstream_dns:
+    - https://dns.quad9.net/dns-query
+    - https://dns.cloudflare.com/dns-query
+    # - <tailnet-resolver-ip>          # plain DNS reachable on your tailnet
+    # - <tailnet-resolver-ip>:53
+    # - tls://dns.example.com:853          # DNS-over-TLS
+    # - quic://dns.example.com:853         # DNS-over-QUIC
+    # - https://dns.example.com/dns-query  # DNS-over-HTTPS
+    # - sdns://AgcAAAAAAAAA...             # DNS stamp (NextDNS, etc.)
+
+  # Plain-DNS servers used ONLY to resolve the hostnames above (and PTR lookups).
+  # They must be plain IPs - DoH/DoT cannot bootstrap themselves.
+  bootstrap_dns:
+    - 9.9.9.9
+    - 1.1.1.1
+
+  # How the upstreams above are used:
+  #   load_balance (default) | parallel | fastest_addr
+  # upstream_mode: load_balance
+
+  # --- optional tuning -------------------------------------------------------
+  # cache_size: 4194304          # entries; 0 disables the cache
+  # cache_ttl_min: 60
+  # cache_ttl_max: 86400
+  # ratelimit: 20                # queries/sec per client; 0 = unlimited
+  # refuse_any: true             # drop ANY queries
+  # dnssec_enabled: false
+  # edns_cs_enabled: false       # strip client subnet info
+
+  # Answer only these clients (tailnet + loopback). Leave unset for "anyone
+  # who can reach the listener", which here already means tailnet-only.
+  # allowed_clients:
+  #   - 100.64.0.0/10
+  #   - 127.0.0.1
+
+# -----------------------------------------------------------------------------
+#  Blocklists / filtering
+# -----------------------------------------------------------------------------
+# filtering:
+#   protection_enabled: true
+#   filtering_enabled: true
+#   filters:
+#     - enabled: true
+#       url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
+#       name: AdGuard DNS filter
+#     - enabled: true
+#       url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_2.txt
+#       name: AdAway Default Blocklist
+#   rewrites:
+#     - domain: nas.home
+#       answer: 100.64.0.5
+
+# -----------------------------------------------------------------------------
+#  Web UI
+# -----------------------------------------------------------------------------
+# http:
+#   address: 0.0.0.0:80
+#   session_ttl: 720h
+#   force_https: false
+
+# -----------------------------------------------------------------------------
+#  Query log / statistics
+# -----------------------------------------------------------------------------
+# querylog:
+#   enabled: true
+#   interval: 2160h              # 90 days
+#   size_memory: 1000
+#   file_enabled: true
+# statistics:
+#   interval: 2160h

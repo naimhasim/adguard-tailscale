@@ -1,0 +1,137 @@
+# =============================================================================
+#  AdGuard Home + Tailscale on a single VPS
+# =============================================================================
+#  Topology
+#  --------
+#  The VPS host keeps only its normal network stack. Tailscale does NOT touch
+#  the host: tailscaled runs in its own Docker network namespace ("adguard"),
+#  where it creates tailscale0 and holds the 100.x.y.z address.
+#
+#    host  <host-ip>               <- no tailscale0, no 100.x here
+#      │
+#      │  docker bridge "adguard" (auto-assigned by Docker)
+#      ▼
+#    ┌───────────────────────────────────────────────┐
+#    │  tailscale container netns                     │
+#    │    eth0        <bridge-ip>                     │
+#    │    tailscale0  100.x.y.z  ◄── the tailnet IP   │
+#    │      │                                         │
+#    │      └── AdGuard Home (shares this netns)      │
+#    │            :53/udp :53/tcp  :80/tcp            │
+#    └───────────────────────────────────────────────┘
+#
+#  Only ONE port is published to the host: 41641/udp, the WireGuard tunnel.
+#  Without it peers would fall back to a DERP relay; with it they connect
+#  directly. Port 53 is never published, so AdGuard is structurally incapable
+#  of being a public resolver.
+#
+#  Auth
+#  ----
+#  TS_AUTHKEY drives a fully unattended first boot (see .env). After that the
+#  node identity is in the tailscale-state volume and TS_AUTH_ONCE=true stops
+#  it from ever re-authenticating.
+#
+#  This node advertises itself as an exit node (see TS_EXTRA_ARGS). It still
+#  offers no subnet routes of its own.
+# =============================================================================
+
+name: adguard-tailscale
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Tailscale - kernel networking, own bridge network
+  # ---------------------------------------------------------------------------
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    hostname: ${TS_HOSTNAME}
+    restart: unless-stopped
+
+    networks:
+      - adguard
+
+    # The WireGuard endpoint. This is the encrypted tunnel, NOT a DNS resolver.
+    ports:
+      - "${TS_WG_PORT:-41641}:41641/udp"
+
+    environment:
+      # Read from .env by Compose variable substitution - never inlined here.
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_HOSTNAME: ${TS_HOSTNAME}
+      # Node identity persists here -> restarts never re-authenticate.
+      TS_STATE_DIR: /var/lib/tailscale
+      # Kernel networking (wireguard-go is NOT used).
+      TS_USERSPACE: "false"
+      # Only authenticate when not already logged in.
+      TS_AUTH_ONCE: "true"
+      # Flags for `tailscale up` (see .env).
+      TS_EXTRA_ARGS: ${TS_EXTRA_ARGS}
+      # Flags for `tailscaled` itself. Pinning the WireGuard port is what makes
+      # the `ports:` mapping above deterministic - left to itself tailscaled
+      # picks a random port, which a static mapping cannot follow.
+      TS_TAILSCALED_EXTRA_ARGS: --port=41641
+
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+    sysctls:
+      # An exit node forwards + NATs peer traffic inside this container netns.
+      net.ipv4.ip_forward: "1"
+      net.ipv6.conf.all.forwarding: "1"
+
+    healthcheck:
+      test: ["CMD-SHELL", "tailscale status --json | grep -q '\"BackendState\": \"Running\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # AdGuard Home - joins the Tailscale container's network namespace
+  # ---------------------------------------------------------------------------
+  adguard:
+    image: adguard/adguardhome:latest
+    container_name: adguardhome
+    # Sharing the netns is what puts AdGuard on 100.x.y.z. It also means this
+    # service inherits the "adguard" Docker network through the tailscale
+    # container - a container cannot declare both network_mode and networks.
+    network_mode: "service:tailscale"
+    restart: unless-stopped
+    depends_on:
+      tailscale:
+        condition: service_started
+
+    volumes:
+      # Persistent AdGuard configuration (AdGuardHome.yaml, filters, stats)
+      - adguard-conf:/opt/adguardhome/conf
+      # Persistent AdGuard working data (query log, statistics, filter cache)
+      - adguard-work:/opt/adguardhome/work
+
+# -----------------------------------------------------------------------------
+# The shared Docker network. Both services live on it (AdGuard via the
+# tailscale container's namespace).
+# -----------------------------------------------------------------------------
+networks:
+  adguard:
+    name: adguard
+    driver: bridge
+
+# -----------------------------------------------------------------------------
+# Named volumes - survive `docker compose down`, Docker restarts and reboots.
+# Only `docker compose down -v` removes them.
+# -----------------------------------------------------------------------------
+volumes:
+  tailscale-state:
+    name: adguard-tailscale_tailscale-state
+  adguard-conf:
+    name: adguard-tailscale_adguard-conf
+  adguard-work:
+    name: adguard-tailscale_adguard-work

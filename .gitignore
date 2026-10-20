@@ -1,0 +1,26 @@
+# --- secrets -----------------------------------------------------------------
+# .env holds the Tailscale auth key and the AdGuard admin password.
+# It must never be committed; .env.example is the committed template.
+.env
+.env.*
+!.env.example
+
+# --- runtime / local state ---------------------------------------------------
+*.log
+data/
+rollback/
+*.bak
+*.bak-*
+
+# --- python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- editors / OS ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
